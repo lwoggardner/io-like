@@ -6,3 +6,5 @@ pkg/*
 
 # The documentation directory
 doc/*
+
+rubyspec_temp
