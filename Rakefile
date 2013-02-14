@@ -39,9 +39,10 @@ TEST_FILES  = FileList.new(
 
 # Spec files used with mspec and their support files.
 SPEC_FILES  = FileList.new(
-  'ruby.1.8.mspec',
+  'io-like.mspec',
   'spec_helper.rb',
-  'spec/**/*'
+  'spec/**/*',
+  'rubyspec/**/*'
 )
 
 # Files to be included for documentation purposes only.
@@ -176,7 +177,7 @@ end
 # Create the test task.
 desc 'Run tests'
 task :test do
-  sh "mspec"
+  sh "mspec -B io-like.mspec"
 end
 
 # Clean up to a pristine state.
