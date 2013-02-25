@@ -5,12 +5,37 @@ class IO
     include IO::Like_1_8_7
 
     # call-seq:
+    #   ios.binmode          -> ios
+    # Sets binary mode and returns <code>self</code>.
+    def binmode
+      raise IOError, "closed stream" if closed?
+      @external_encoding = Encoding::BINARY
+      self
+    end
+
+    # call-seq:
+    #   ios.binmode?        -> true or false
+    # Returns true if our external encoding is binary
+    def binmode?
+      external_encoding == Encoding::BINARY
+    end
+
+    # call-seq:
     #   ios.bytes            -> anEnumerator
     #
     # Calls #each_byte without a block and returns the resulting
     # <code>Enumerator</code> instance.
     def bytes
       self.to_enum(:each_byte)
+    end
+
+    # call-seq:
+    #   ios.chars            -> anEnumerator
+    #
+    # Calls #each_char without a block and returns the resulting
+    # <code>Enumerator</code> instance.
+    def chars
+      self.to_enum(:each_char)
     end
 
     # call-seq:
@@ -52,6 +77,41 @@ class IO
         self
       end
     end
+
+    # call-seq:
+    #   ios.each_char { |char| block } -> ios
+    #   ios.each_char        -> anEnumerator
+    #
+    # As #each_byte but yields characters (encoded strings of length 1)
+    # instead of bytes
+    def each_char
+      unless block_given?
+        self.to_enum(:each_char)
+      else
+        while (char = getc)
+          yield char
+        end
+        self
+      end
+    end
+
+    # call-seq:
+    #   ios.each_codepoint { |char| block } -> ios
+    #   ios.each_codepoint   -> anEnumerator
+    #
+    # As #each_char but yields codepoints instead of characters.
+    def each_codepoint
+      unless block_given?
+        self.to_enum(:each_codepoint)
+      else
+        while (char = getc)
+          yield  char.codepoints.next
+        end
+        self
+      end
+    end
+
+    alias :codepoints :each_codepoint
 
     # call-seq:
     #   ios.getbyte       -> fixnum or nil
@@ -138,6 +198,23 @@ class IO
     end
 
     # call-seq:
+    #   ios.readchar         -> string
+    #
+    # Returns the next character (encoded string of length 1) from the stream
+    #
+    # Raises <code>EOFError</code> when there is no more data in the stream.
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #readable? returns <code>true</code>.
+    #
+    # <b>NOTE:</b> This method ignores <code>Errno::EAGAIN</code> and
+    # <code>Errno::EINTR</code> raised by #unbuffered_read.  Therefore, this
+    # method always blocks.  Aside from that exception, this method will also
+    # raise the same errors and block at the same times as #unbuffered_read.
+    def readchar
+      __io_like__buffered_read_chars(1)
+    end
+
+    # call-seq:
     #   ios.read_nonblock(length[, buffer]) -> string or buffer
     #
     # Returns at most <i>length</i> bytes from the data stream using only the
@@ -165,6 +242,63 @@ class IO
         ex.extend(IO::WaitReadable)
         raise ex
       end
+    end
+
+    # call-seq:
+    #   ios.set_encoding(ext_enc) -> ios
+    #   ios.set_encoding("ext_enc:int_enc") -> ios
+    #   ios.set_encoding(ext_enc,int_enc) -> ios
+    #   ios.set_encoding("ext_enc:int_enc",opt) -> ios
+    #   ios.set_encoding(ext_enc,int_enc,opt) -> ios
+    #
+    # Sets external and internal encodings and encoding options.
+    #
+    # Encodings can be specified as a single string with external and internal
+    # encoding names separate by a colon, or separately as name strings or
+    # <code>Encoding</code> objects.
+    #
+    # If the final argument is a <code>Hash</code> it will be used to specify
+    # conversion options during encoding operations.
+    #
+    #TODO: There are no rubyspecs for the option argument
+    def set_encoding(enc,arg2=:io_like, arg3=:io_like)
+      if enc.respond_to?(:to_str)
+        ext,int = enc.to_str.split(":", 2)
+        @external_encoding = Encoding.find(ext)
+        @internal_encoding = Encoding.find(int) if int && int != ext
+      elsif Encoding === enc
+        @external_encoding = enc
+      end
+
+      if arg2.respond_to?(:to_str)
+        @internal_encoding = Encoding.find(arg2.to_str)
+      elsif Encoding === arg2
+        @internal_encoding = arg2 if arg2 != @external_encoding
+      elsif Hash === arg2
+        @encoding_options = arg2
+      end
+
+      if Hash === arg3
+        @encoding_options = arg3
+      end
+      self
+    end
+
+    # call-seq:
+    #    ios.external_encoding -> encoding
+    #
+    # Returns the <code>Encoding</code> object used for the external encoding.
+    def external_encoding
+      @external_encoding
+    end
+
+    # call-seq:
+    #    ios-internal_encoding -> encoding
+    #
+    # Returns the <code>Encoding</code> object used for internal conversion or nil
+    # if no internal conversion has been specified.
+    def internal_encoding
+      @internal_encoding
     end
 
     # call-seq:
@@ -220,6 +354,58 @@ class IO
     end
 
     # call-seq:
+    #   ios.ungetc(string)   -> nil
+    #   ios.ungetc(integer)  -> nil
+    #
+    # A string arguement is encoded to #external_encoding, then forced to 'binary'
+    # and passed to #unread
+    #
+    # An integer argument is treated as a codepoint in the #internal_encoding,
+    # converted to a character with #external_encoding, then forced to 'binary' and
+    # passed to #unread.
+    # TODO: Raise doc bug against MRI as above behaviour is undocumented (although
+    # tested by rubyspec)
+    #
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #readable? returns <code>true</code>.
+    def ungetc(string)
+      raise IOError, 'closed stream' if closed?
+      raise IOError, 'not opened for reading' unless readable?
+      if string.respond_to?(:to_int)
+        #is expected to be a codepoint in the internal encoding
+        chr = string.to_int.chr(__io_like__internal_encoding)
+        __io_like__unread(chr.encode!(__io_like__external_encoding, __io_like__encoding_options))
+      else
+        __io_like__unread(string.encode(__io_like__external_encoding, __io_like__encoding_options))
+      end
+      nil
+    end
+
+    # call-seq:
+    #   ios.write(string)    -> integer
+    #
+    # The argument is converted to a string with <code>to_s</code>, converted
+    # to #external_encoding if not already 'binary', forced to 'binary' and then
+    # written to the stream. The number of bytes written is returned.
+    # TODO: rubyspec for encodings on write.
+    #
+    # The entire contents of <i>string</i> are written, blocking as necessary even
+    # if the data stream does not block.
+    #
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #writable? returns <code>true</code>.
+    #
+    # <b>NOTE:</b> This method ignores <code>Errno::EAGAIN</code> and
+    # <code>Errno::EINTR</code> raised by #unbuffered_write.  Therefore, this
+    # method always blocks if unable to immediately write <i>string</i>
+    # completely.  Aside from that exception, this method will also raise the
+    # same errors and block at the same times as #unbuffered_write.
+    #
+    def write(string)
+      super(__io_like__write_encode(string))
+    end
+
+    # call-seq:
     #   ios.write_nonblock(string)    -> integer
     #
     # The argument is converted to a string with <code>to_s</code>, converted
@@ -235,7 +421,7 @@ class IO
     # TODO: rubyspec to test raises <code>IO::WaitWritable</code>.
     def write_nonblock(string)
       begin
-        super(string)
+        super(__io_like__write_encode(string))
       rescue IO::WaitWritable
         raise
       rescue Errno::EAGAIN => ex
@@ -245,6 +431,38 @@ class IO
     end
 
     private
+
+    # reads length bytes from the stream and converts to characters in
+    # #external_encoding, ensuring that the last character is complete.
+    def __io_like__buffered_read_chars(length)
+
+      buffer = __io_like__buffered_read(length)
+
+      buffer.force_encoding(__io_like__external_encoding)
+
+      # read one byte at a time until the last character is valid (or EOF)
+      begin
+        until buffer[-1].valid_encoding?
+          buffer.force_encoding(Encoding::BINARY)
+          buffer << __io_like__buffered_read(1)
+          buffer.force_encoding(__io_like__external_encoding)
+        end
+      rescue EOFError
+        # return the invalid characters
+      rescue SystemCallError
+        # hmm, return the invalid encoded sequence, or raise the error?
+        raise
+      end
+
+      # Strictly buffer might now be longer than length bytes, but we cna't return
+      # a partial character and in the degenerate case where length=1, no multibyte
+      # character could ever be returned.
+      # MRI does not honour the length argument in these cases either
+      buffer.encode!(__io_like__internal_encoding, __io_like__encoding_options)
+
+      #TODO: Not sure why the buffer is not considered tainted when we read the whole file in at once
+      buffer.taint
+    end
 
     # force string to binary and insert back into the read buffer
     # TODO: Find out why #unread is not a private method for IO::Like
@@ -259,6 +477,21 @@ class IO
       nil
     end
 
+    # lazy instantiation of encoding options
+    def __io_like__encoding_options
+      @encoding_options ||= {}
+    end
+
+    # the real external encoding to use, if not set
+    def __io_like__external_encoding
+      external_encoding || Encoding::default_external
+    end
+
+    # the real internal encoding to use, if not set
+    def __io_like__internal_encoding
+      internal_encoding || Encoding::default_internal || __io_like__external_encoding
+    end
+
     # Returns a reference to the internal read buffer which is always
     # a binary encoded string.
     def __io_like__internal_read_buffer
@@ -271,6 +504,16 @@ class IO
       @__io_like__write_buffer ||= String.new('').force_encoding(Encoding::BINARY)
     end
 
+    # Encode a string for writing to the stream, ie convert to #external_encoding
+    # unless it is already 'binary'
+    def __io_like__write_encode(string)
+      string = string.to_s
+      unless string.encoding == Encoding::BINARY
+        string.encode(__io_like__external_encoding, __io_like__encoding_options)
+      else
+        string
+      end
+    end
   end
 end
 # vim: ts=2 sw=2 et
