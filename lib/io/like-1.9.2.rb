@@ -114,6 +114,38 @@ class IO
     alias :codepoints :each_codepoint
 
     # call-seq:
+    #   ios.each_line(sep_string = $/) { |line| block } -> ios
+    #   ios.each_line(limit) { |line| block } -> ios
+    #   ios.each_line(sep_string = $/,limit) { |line| block } -> ios
+    #   ios.each_line(sep_string = $/) -> anEnumerator
+    #   ios.each_line(limit) { |line| block } -> anEnumerator
+    #   ios.each_line(sep_string = $/,limit) -> anEnumerator
+    #
+    # Reads each line from the stream using #gets and calls the given block once
+    # for each line, passing the line as an argument. Alternatively if no block
+    # is given returns an enumerator
+    #
+    # <b>NOTE:</b> When <i>sep_string</i> is not <code>nil</code>, this method
+    # ignores <code>Errno::EAGAIN</code> and <code>Errno::EINTR</code> raised by
+    # #unbuffered_read.  Therefore, this method always blocks.  Aside from that
+    # exception and the conversion of <code>EOFError</code> results into
+    # <code>nil</code> results, this method will also raise the same errors and
+    # block at the same times as #unbuffered_read.
+    def each_line(sep = :io_like, limit = :io_like)
+      unless block_given?
+        self.to_enum(:each)
+      else
+        while line = gets(sep, limit)
+          yield line
+        end
+        self
+      end
+    end
+
+    alias :each :each_line
+    alias :lines :each_line
+
+    # call-seq:
     #   ios.getbyte       -> fixnum or nil
     #
     # Calls #readbyte and either returns the result or <code>nil</code> if
@@ -132,6 +164,35 @@ class IO
     # nil at eof
     def getbyte
       readbyte()
+    rescue EOFError
+      nil
+    end
+
+    # call-seq:
+    #   ios.gets(sep_string = $/) { |line| block } -> ios
+    #   ios.gets(limit) { |line| block } -> ios
+    #   ios.gets(sep_string = $/,limit) { |line| block } -> ios
+    #   ios.gets(sep_string = $/) -> anEnumerator
+    #   ios.gets(limit) { |line| block } -> anEnumerator
+    #   ios.gets(sep_string = $/,limit) -> anEnumerator
+    #
+    # Calls #readline and either returns the result or <code>nil</code> if #readline
+    # raises <code>EOFError</code>.
+    #
+    # If #readline returns some data, <code>$.</code> is set to the value of
+    # #lineno.
+    #
+    # <b>NOTE:</b> Due to limitations of MRI up to version 1.9.x when running
+    # managed (Ruby) code, this method fails to set <code>$_</code> to the
+    # returned data; however, other implementations may allow it.
+    #
+    def gets(sep_string = :io_like, limit = :io_like)
+      # Set the last read line in the global.
+      $_ = readline(sep_string, limit)
+      # Set the last line number in the global.
+      $. = lineno
+      # Return the last read line.
+      $_
     rescue EOFError
       nil
     end
@@ -212,6 +273,143 @@ class IO
     # raise the same errors and block at the same times as #unbuffered_read.
     def readchar
       __io_like__buffered_read_chars(1)
+    end
+
+    # call-seq:
+    #   ios.readline(sep_string = $/) { |line| block } -> ios
+    #   ios.readline(limit) { |line| block } -> ios
+    #   ios.readline(sep_string = $/,limit) { |line| block } -> ios
+    #   ios.readline(sep_string = $/) -> anEnumerator
+    #   ios.readline(limit) { |line| block } -> anEnumerator
+    #   ios.readline(sep_string = $/,limit) -> anEnumerator
+    #
+    # Returns the next line from the stream, where lines are separated by
+    # <i>sep_string</i>.  Increments #lineno by <code>1</code> for each call
+    # regardless of the value of <i>sep_string</i>.
+    #
+    # If <i>sep_string</i> is not <code>nil</code> and not a
+    # <code>String</code>, it is first converted to a <code>String</code> using
+    # its <code>to_str</code> method and processing continues as follows.
+    #
+    # If <i>sep_string</i> is <code>nil</code>, a line is defined as the
+    # remaining contents of the stream.  Partial data will be returned if a
+    # low-level error of any kind is raised after some data is retrieved.  This
+    # is equivalent to calling #read without any arguments except that this
+    # method will raise an <code>EOFError</code> if called at the end of the
+    # stream.
+    #
+    # If <i>sep_string</i> is an empty <code>String</code>, a paragraph is
+    # returned, where a paragraph is defined as data followed by 2 or more
+    # successive newline characters.  A maximum of 2 newlines are returned at
+    # the end of the returned data.  Fewer may be returned if the stream ends
+    # before at least 2 successive newlines are seen.
+    #
+    # Any other value for <i>sep_string</i> is used as a delimiter to mark the
+    # end of a line.  The returned data includes this delimiter unless the
+    # stream ends before the delimiter is seen.
+    #
+    # In any case, the end of the stream terminates the current line.
+    #
+    # If the <i>limit</i> argument is given, only that many bytesi, plus whatever
+    # is required to complete a partial multibyte character,  will be
+    # read from the underlying stream while searching for the separator. If the
+    # separator is not found the partial data will be returned.
+    #
+    # Raises <code>EOFError</code> when there is no more data in the stream.
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #readable? returns <code>true</code>.
+    #
+    # <b>NOTE:</b> When <i>sep_string</i> is not <code>nil</code>, this method
+    # ignores <code>Errno::EAGAIN</code> and <code>Errno::EINTR</code> raised by
+    # #unbuffered_read.  Therefore, this method will always block in that case.
+    # Aside from that exception, this method will raise the same errors and
+    # block at the same times as #unbuffered_read.
+    def readline(sep_string = :io_like , limit = :io_like)
+      if sep_string == :io_like
+        #no args
+        limit = 0
+        sep_string = $/
+      elsif limit == :io_like
+        if sep_string.nil?
+          limit = 0
+        elsif sep_string.respond_to?(:to_int)
+          #single arg (limit)
+          limit = sep_string.to_int
+          sep_string = $/
+        elsif sep_string.respond_to?(:to_str)
+          #single arg (seperator)
+          sep_string = sep_string.to_str if sep_string
+          limit = 0
+        else
+          raise ArgumentError, "invalid args #{sep_string}, #{limit}"
+        end
+      else
+        #two args
+        limit = limit.to_int if limit
+        sep_string = sep_string.to_str if sep_string
+      end
+
+      buffer = ''
+      begin
+        if sep_string.nil? then
+          # A nil line separator means that the user wants to capture all the
+          # remaining input.
+          while limit <= 0 || buffer.bytesize < limit
+            buffer << __io_like__buffered_read_chars(limit <= 0 ? 4096 : limit - buffer.bytesize)
+          end
+        else
+          begin
+
+            # Record if the user requested paragraphs rather than lines.
+            paragraph_requested = sep_string.empty?
+            # An empty line separator string indicates that the user wants to
+            # return paragraphs.  A pair of newlines in the stream is used to
+            # mark this.
+            sep_string = "\n\n" if paragraph_requested
+
+            # GG: I can't find any general guidance on how this should work in terms of searching
+            # when the separator encoding (suually from source file) doesn't match
+            # the default internal/external encoding. So instead we'll just do
+            # a binary match.
+
+            if paragraph_requested then
+              # If the user requested paragraphs instead of lines, we need to
+              # consume and discard all newlines remaining at the front of the
+              # input.
+              char = __io_like__buffered_read(1)
+              char = __io_like__buffered_read(1) while char == "\n"
+              # Put back the last character.
+              __io_like__unread(char[0])
+            end
+
+            # Add each character from the input to the buffer until either the
+            # buffer has the right ending or the end of the input is reached.
+            while buffer.index(sep_string, -sep_string.length).nil? && (limit == 0 || buffer.bytesize < limit) do
+              buffer << __io_like__buffered_read_chars(1)
+            end
+
+            if paragraph_requested then
+              # If the user requested paragraphs instead of lines, we need to
+              # consume and discard all newlines remaining at the front of the
+              # input.
+              char = __io_like__buffered_read(1)
+              char = __io_like__buffered_read(1) while char == "\n"
+              # Put back the last character.
+              __io_like__unread(char[0])
+            end
+
+          rescue Errno::EAGAIN, Errno::EINTR
+            retry if read_ready?
+          end
+        end
+      rescue EOFError, SystemCallError
+        # Reraise the error if there is nothing to return.
+        raise if buffer.empty?
+      end
+      # Increment the number of times this method has returned a "line".
+      self.lineno += 1
+
+      buffer
     end
 
     # call-seq:
