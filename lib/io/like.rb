@@ -5,9 +5,15 @@ ver_arr = RUBY_VERSION.split('.').collect { |n| n.to_i }
 if (ver_arr <=> [1, 8, 6]) <= 0 then
   require 'io/like-1.8.6'
   IO::Like = IO::Like_1_8_6
-else
+elsif (ver_arr <=> [1, 9, 0]) < 0 then
   require 'io/like-1.8.7'
   IO::Like = IO::Like_1_8_7
+elsif (ver_arr <=> [1, 9, 2]) <= 0 then
+  require 'io/like-1.9.2'
+  IO::Like = IO::Like_1_9_2
+else
+  require 'io/like-1.9.3'
+  IO::Like = IO::Like_1_9_3
 end
 
 # Redefine IO::Like here in order to get rdoc documentation generated for it.
@@ -41,6 +47,8 @@ class IO # :nodoc:
   # the read operation should not block.  Errno::EINTR should be raised if the
   # read operation is interrupted before any data is read.
   #
+  # In 1.9 the returned string is expected to have 'binary' encoding.
+  #
   # == Writers
   #
   # In order to use this module to provide output methods, a class which
@@ -50,6 +58,8 @@ class IO # :nodoc:
   #   def unbuffered_write(string)
   #     ...
   #   end
+  #
+  # In 1.9 the supplied string argument will have 'binary' encoding.
   #
   # This method must either return the number of bytes written to the stream,
   # which may be less than the length of _string_ in bytes, OR must raise an

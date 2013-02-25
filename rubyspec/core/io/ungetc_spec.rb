@@ -2,7 +2,8 @@ require File.expand_path('../../../spec_helper', __FILE__)
 require File.expand_path('../fixtures/classes', __FILE__)
 
 ruby_version_is "1.9" do
-  class IO
+  #TODO: Update rubyspec so we don't have to do this horrible hack
+  module IO::Like
     alias getc_orig getc
     def getc
       s = getc_orig
