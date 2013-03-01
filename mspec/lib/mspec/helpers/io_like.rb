@@ -16,6 +16,7 @@ class IOWrapper
   end
 
   def initialize(io)
+    super()
     @io = io
   end
 
@@ -52,7 +53,13 @@ class FileIOWrapper < IOWrapper
         @readable = (flags & Fcntl::O_WRONLY == 0)
         @writable = (flags & (Fcntl::O_RDWR | Fcntl::O_WRONLY) != 0)
         @duplexed = false
-        @external_encoding = fileio.external_encoding if fileio.respond_to?(:external_encoding)
+        if fileio.respond_to?(:external_encoding)
+          # Unfortunately we can't distinguish if the fileio was explicitly opened with the default
+          # encoding but it doesn't seem to impact the specs. Any specs relying on this are really testing
+          #  IO.open with is not relevant for io-like
+          @external_encoding = fileio.external_encoding if fileio.external_encoding != Encoding.default_external
+          @internal_encoding = fileio.internal_encoding if fileio.internal_encoding != Encoding.default_internal
+        end
         # one sysread spec needs fill_size 0, but then we wouldn't be testing our buffering
         #self.fill_size=0 if readable?
     end

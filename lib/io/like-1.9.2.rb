@@ -4,12 +4,18 @@ class IO
   module Like_1_9_2
     include IO::Like_1_8_7
 
+    def initialize(*args)
+      super(*args)
+      @init_external_encoding = Encoding.default_external
+      @init_internal_encoding = Encoding.default_internal
+    end
+
     # call-seq:
     #   ios.binmode          -> ios
     # Sets binary mode and returns <code>self</code>.
     def binmode
       raise IOError, "closed stream" if closed?
-      @external_encoding = Encoding::BINARY
+      set_encoding(Encoding::BINARY,nil)
       self
     end
 
@@ -18,15 +24,6 @@ class IO
     # Returns true if our external encoding is binary
     def binmode?
       external_encoding == Encoding::BINARY
-    end
-
-    # call-seq:
-    #   ios.chars            -> anEnumerator
-    #
-    # Calls #each_char without a block and returns the resulting
-    # <code>Enumerator</code> instance.
-    def chars
-      self.to_enum(:each_char)
     end
 
     # call-seq:
@@ -87,6 +84,8 @@ class IO
         self
       end
     end
+
+    alias :chars :each_char
 
     # call-seq:
     #   ios.each_codepoint { |char| block } -> ios
@@ -277,6 +276,65 @@ class IO
         write(ors) if string.nil? || string.index(ors, -ors.length).nil?
       end
       nil
+    end
+
+    # call-seq:
+    #   ios.read([length[, buffer]]) -> nil, buffer, or string
+    #
+    # If <i>length</i> is specified and is a positive integer, at most length
+    # bytes are returned.  Truncated data will occur if there is insufficient
+    # data left to fulfill the request.  If the read starts at the end of data,
+    # <code>nil</code> is returned.
+    #
+    # If <i>length</i> is unspecified or <code>nil</code>, an attempt to return
+    # all remaining data is made.  Partial data will be returned if a low-level
+    # error is raised after some data is retrieved.  If no data would be
+    # returned at all, an empty <code>String</code> is returned.
+    #
+    # If <i>buffer</i> is specified, it will be converted to a
+    # <code>String</code> using its <code>to_str</code> method if necessary and
+    # will be filled with the returned data if any.
+    #
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #readable? returns <code>true</code>.
+    #
+    # <b>NOTE:</b> Because this method relies on #unbuffered_read, it will also
+    # raise the same errors and block at the same times as that function.
+    def read(length = nil, buffer = nil)
+      # Check the validity of the method arguments.
+      unless length.nil? || length >= 0 then
+        raise ArgumentError, "negative length #{length} given"
+      end
+      buffer = buffer.nil? ? ''.force_encoding(Encoding::BINARY) : buffer.to_str
+      buffer.slice!(0..-1) unless buffer.empty?
+
+      if length.nil? then
+        # Read and return everything.
+        begin
+          loop do
+            buffer << __io_like__buffered_read(4096)
+          end
+        rescue EOFError
+          # Ignore this.
+        rescue SystemCallError
+          # Reraise the error if there is nothing to return.
+          raise if buffer.empty?
+        end
+        buffer.force_encoding(__io_like__external_encoding)
+        buffer.encode!(__io_like__internal_encoding,__io_like__encoding_options) if !binmode? || @internal_encoding
+      else
+        # Read and return up to length bytes.
+        enc = buffer.encoding
+        begin
+          buffer << __io_like__buffered_read(length)
+        rescue EOFError
+          # Return nil to the caller at end of file when requesting a specific
+          # amount of data.
+          return nil
+        end
+        buffer.force_encoding(enc)
+      end
+      buffer
     end
 
     # call-seq:
@@ -504,6 +562,9 @@ class IO
         @internal_encoding = Encoding.find(int) if int && int != ext
       elsif Encoding === enc
         @external_encoding = enc
+      elsif enc.nil?
+        @external_encoding = nil
+        @init_external_encoding = writable? ? nil : Encoding.default_external
       end
 
       if arg2.respond_to?(:to_str)
@@ -512,6 +573,9 @@ class IO
         @internal_encoding = arg2 if arg2 != @external_encoding
       elsif Hash === arg2
         @encoding_options = arg2
+      elsif arg2.nil?
+        @internal_encoding = nil
+        @init_internal_encoding = writable? ? nil : Encoding.default_internal
       end
 
       if Hash === arg3
@@ -525,7 +589,11 @@ class IO
     #
     # Returns the <code>Encoding</code> object used for the external encoding.
     def external_encoding
-      @external_encoding
+      if writable?
+        @external_encoding || (Encoding.default_internal ? @init_external_encoding : nil )
+      else
+        @external_encoding || (Encoding.default_internal ? @init_external_encoding : Encoding.default_external)
+      end
     end
 
     # call-seq:
@@ -534,7 +602,7 @@ class IO
     # Returns the <code>Encoding</code> object used for internal conversion or nil
     # if no internal conversion has been specified.
     def internal_encoding
-      @internal_encoding
+      @internal_encoding || (@init_internal_encoding == external_encoding ? nil : @init_internal_encoding)
     end
 
     # call-seq:
@@ -576,15 +644,17 @@ class IO
     # The low byte of an integer argument is converted to a binary
     # string and passed on to #unread.
     #
-    #TODO rubyspecs for ungetbyte
     def ungetbyte(string)
       raise IOError, 'closed stream' if closed?
       raise IOError, 'not opened for reading' unless readable?
-      if string.respond_to?(:to_int)
-        int = string.to_int & 0xFF
+
+      return nil if string.nil?
+
+      if Fixnum === string
+        int = string & 0xFF
         __io_like__unread(int.chr(Encoding::BINARY))
       else
-        __io_like__unread(string)
+        __io_like__unread(string.to_str)
       end
       nil
     end
@@ -607,12 +677,15 @@ class IO
     def ungetc(string)
       raise IOError, 'closed stream' if closed?
       raise IOError, 'not opened for reading' unless readable?
+
+      return nil if string.nil?
+
       if string.respond_to?(:to_int)
         #is expected to be a codepoint in the internal encoding
         chr = string.to_int.chr(__io_like__internal_encoding)
         __io_like__unread(chr.encode!(__io_like__external_encoding, __io_like__encoding_options))
       else
-        __io_like__unread(string.encode(__io_like__external_encoding, __io_like__encoding_options))
+        __io_like__unread(string.to_str.encode(__io_like__external_encoding, __io_like__encoding_options))
       end
       nil
     end
@@ -750,6 +823,7 @@ class IO
         string
       end
     end
+
   end
 end
 # vim: ts=2 sw=2 et

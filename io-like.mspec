@@ -30,6 +30,9 @@ class MSpecScript
   non_compliant = [
     "IO#read_nonblock changes the behavior of #read to nonblocking",
     "IO#ungetc raises IOError when invoked on stream that was not yet read",
+    # This is an undocumented 1.8 behaviour, too late for us to fix, yes
+    #  there is a spelling error in the description
+    "IO#read trucates the buffer to the limit when no data remains",
     #the very definition says to expect unpredictable results for the below
     "IO#sysread on a file reads normally even when called immediately after a buffered IO#read",
     "$_" # cannot set $_ from ruby code to we cannot comply with anything mentioning $_
