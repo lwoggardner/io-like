@@ -13,8 +13,14 @@ ruby_version_is '1.8.7' do
       @iowrapper.close unless @iowrapper.closed?
     end
 
-    it "ignores a block" do
-      @iowrapper.bytes { raise "oups" }.should be_kind_of(enumerator_class)
+    ruby_version_is ""..."1.9" do
+      it "ignores a block" do
+        @iowrapper.bytes { raise "oups" }.should be_kind_of(enumerator_class)
+      end
+    end
+
+    ruby_version_is "1.9" do
+      it "should share specs with each_byte"
     end
   end
 end

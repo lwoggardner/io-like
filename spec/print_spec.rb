@@ -22,9 +22,18 @@ describe "IO::Like#print" do
     @iowrapper.print('hello').should == nil
   end
 
-  it "writes nil arguments as \"nil\"" do
-    @iowrapper.print(nil)
-    File.read(@filename).should == "nil"
+  ruby_version_is ""..."1.9" do
+    it "writes nil arguments as \"nil\"" do
+      @iowrapper.print(nil)
+      File.read(@filename).should == "nil"
+    end
+  end
+
+  ruby_version_is "1.9" do
+    it "writes nil arguments as empty string" do
+      @iowrapper.print(nil)
+      File.read(@filename).should == ""
+    end
   end
 
   it "does not append anything to the output when $\\ is nil" do

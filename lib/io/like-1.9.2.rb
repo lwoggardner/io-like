@@ -21,15 +21,6 @@ class IO
     end
 
     # call-seq:
-    #   ios.bytes            -> anEnumerator
-    #
-    # Calls #each_byte without a block and returns the resulting
-    # <code>Enumerator</code> instance.
-    def bytes
-      self.to_enum(:each_byte)
-    end
-
-    # call-seq:
     #   ios.chars            -> anEnumerator
     #
     # Calls #each_char without a block and returns the resulting
@@ -77,6 +68,8 @@ class IO
         self
       end
     end
+
+    alias :bytes :each_byte
 
     # call-seq:
     #   ios.each_char { |char| block } -> ios
@@ -194,6 +187,51 @@ class IO
       # Return the last read line.
       $_
     rescue EOFError
+      nil
+    end
+
+    # call-seq:
+    #   ios.print([obj, ...]) -> nil
+    #
+    # Writes the given object(s), if any, to the stream using #write after
+    # converting them to strings by calling their <code>to_s</code> methods.  If
+    # no objects are given, <code>$_</code> is used.  The field separator
+    # (<code>$,</code>) is written between successive objects if it is not
+    # <code>nil</code>.  The output record separator (<code>$\\</code>) is
+    # written after all other data if it is not <code>nil</code>.
+    #
+    # Raises <code>IOError</code> if #closed? returns <code>true</code>.  Raises
+    # <code>IOError</code> unless #writable? returns <code>true</code>.
+    #
+    # <b>NOTE:</b> This method ignores <code>Errno::EAGAIN</code> and
+    # <code>Errno::EINTR</code> raised by #unbuffered_write.  Therefore, this
+    # method always blocks if unable to immediately write
+    # <code>[obj, ...]</code> completely.  Aside from that exception, this
+    # method will also raise the same errors and block at the same times as
+    # #unbuffered_write.
+    def print(*args)
+      args << $_ if args.empty?
+      first_arg = true
+      args.each do |arg|
+        # Write a field separator before writing each argument after the first
+        # one unless no field separator is specified.
+        if first_arg then
+          first_arg = false
+        elsif ! $,.nil? then
+          write($,)
+        end
+
+        # If the argument is nil, write 'nil'; otherwise, write the stringified
+        # form of the argument.
+        if arg.nil? then
+          write("")
+        else
+          write(arg)
+        end
+      end
+
+      # Write the output record separator if one is specified.
+      write($\) unless $\.nil?
       nil
     end
 
