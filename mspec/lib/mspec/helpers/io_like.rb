@@ -25,13 +25,13 @@ class IOWrapper
       duped.reopen(@io.dup)
       duped
   end
-  
+
   def reopen(io)
       @io = io
   end
 
   private
-     
+
   def unbuffered_read(length)
     @io.sysread(length)
   end
@@ -76,7 +76,7 @@ class FileIOWrapper < IOWrapper
         flush()
         @io.fsync
     end
-  
+
     def nonblock=(nb)
       flags = @io.fcntl(Fcntl::F_GETFL)
       new_flags = nb ? flags | Fcntl::O_NONBLOCK : flags & ~Fcntl::O_NONBLOCK
@@ -131,7 +131,7 @@ class File
     # replace File.open with wrapped IO-likes
     class << self
         alias :__file_open :open
-        
+
         def open(*args,&block)
            if block_given?
                 __file_open(*args) { |f| FileIOWrapper.open(f,&block) }
@@ -160,3 +160,14 @@ class IO
     end
 end
 
+
+# Remap stdout,stderr to be IO::Like wrappers (as used in some tests)
+$stdout = FileIOWrapper.new($stdout)
+$stdout.sync=true
+$stderr = FileIOWrapper.new($stderr)
+$stderr.sync=true
+
+#STDOUT.puts("Hello to STDOUT")
+#$stdout.puts("Hello to $stdout")
+#STDERR.puts("Hello to STDERR")
+#$stderr.puts("Hello to $stderr")

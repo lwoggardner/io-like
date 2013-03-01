@@ -177,8 +177,15 @@ end
 # Create the test task.
 desc 'Run tests'
 task :test do
+  sh "mspec -B io-like.mspec -r 'io/like'"
+end
+
+# Run specs against ruby
+desc "Run tests without io-like"
+task :test_ruby do
   sh "mspec -B io-like.mspec"
 end
+
 
 # Clean up to a pristine state.
 task :clobber => [:clobber_package, :clobber_rdoc]

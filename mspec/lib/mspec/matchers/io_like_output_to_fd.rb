@@ -30,13 +30,14 @@ class IOLikeOutputToFDMatcher
 
   def matches?(block)
     old_to = @to.dup
+
     out = File.__file_open(tmp("mspec_output_to_#{$$}_#{Time.now.to_i}"), 'w+')
 
     # Replacing with a file handle so that Readline etc. work
     @to.reopen out
 
     block.call
-    
+
     @to.flush
   ensure
     begin
@@ -72,7 +73,7 @@ class IOLikeOutputToFDMatcher
 end
 
 class Object
-  
+
   alias :__mspec_output_to_fd :output_to_fd
 
   def output_to_fd(what, where = STDOUT)
